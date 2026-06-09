@@ -39,7 +39,7 @@ func tick(delta: float) -> void:
 	var waypoint: WaypointData = route.waypoints[_step]
 
 	if waypoint.type == WaypointData.Type.DOOR:
-		RoomManager.request_transition(waypoint.door_id, character)
+		RoomManager.request_transition(waypoint.door_id, character, waypoint.reversed)
 		_advance_step()
 		return
 

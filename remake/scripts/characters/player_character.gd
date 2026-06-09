@@ -64,7 +64,7 @@ func _try_action() -> void:
 
 func _on_caught() -> void:
 	# Force-walk to solitary via autopilot
-	var solitary_route: RouteData = load("res://resources/routes/route_to_solitary.tres")
+	var solitary_route: RouteData = RouteRegistry.get_route("go_to_solitary")
 	if solitary_route:
 		autopilot.force_route(solitary_route)
 	MoraleManager.adjust(-15)

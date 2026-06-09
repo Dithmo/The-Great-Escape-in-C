@@ -9,13 +9,61 @@ Each task is ~2–5 minutes. TDD tasks follow RED → GREEN → REFACTOR.
 
 ---
 
+## Phase 0 — Tooling & Scene Scaffolding
+
+> **Do this before anything else.** These tasks require the Godot editor (or Godot MCP) and GUT to be installed.
+
+### Task 0.1 — Install GUT
+- [ ] Open `remake/` in Godot 4.4+
+- [ ] In the Asset Library, search "GUT" and install Godot Unit Testing framework
+- [ ] Confirm `addons/gut/` appears in the project
+- [ ] Enable the plugin in Project → Project Settings → Plugins
+- [ ] Commit: `chore: add GUT testing framework`
+
+### Task 0.2 — Create main.tscn
+- [ ] Create `scenes/main.tscn`
+- [ ] Root: `Node2D` (name="Main")
+- [ ] Children: `Camera2D`, `Node2D` (name="World"), `CanvasLayer` (name="HUD"), `ColorRect` (name="FadeLayer", full-screen, color=transparent black, CanvasLayer order above HUD)
+- [ ] Commit: `feat: main scene scaffold`
+
+### Task 0.3 — Create character_base.tscn
+- [ ] Create `scenes/characters/character_base.tscn`
+- [ ] Root: `CharacterBody2D` [script: `character.gd`]
+- [ ] Children: `CollisionShape2D`, `AnimatedSprite2D` (name="Sprite"), `CharacterAnimator`, `RouteFollower`, `PursuitController`
+- [ ] Commit: `feat: character base scene scaffold`
+
+### Task 0.4 — Create player_character.tscn
+- [ ] Create `scenes/characters/player_character.tscn` (inherits character_base.tscn)
+- [ ] Root script: `player_character.gd`
+- [ ] Add children: `PlayerInput`, `Inventory`, `AutopilotController`
+- [ ] Commit: `feat: player character scene scaffold`
+
+### Task 0.5 — Create npc_character.tscn
+- [ ] Create `scenes/characters/npc_character.tscn` (inherits character_base.tscn)
+- [ ] Root script: `npc_character.gd`
+- [ ] Commit: `feat: NPC character scene scaffold`
+
+### Task 0.6 — Create item.tscn
+- [ ] Create `scenes/items/item.tscn`
+- [ ] Root: `Area2D` [script: `item.gd`]
+- [ ] Children: `CollisionShape2D`, `AnimatedSprite2D` (name="Sprite"), `Label`
+- [ ] Commit: `feat: item scene scaffold`
+
+### Task 0.7 — Create hud.tscn
+- [ ] Create `scenes/ui/hud.tscn`
+- [ ] Root: `CanvasLayer` [script: `hud.gd`]
+- [ ] Children: `ProgressBar` (name="MoraleBar"), `HBoxContainer` (name="InventoryPanel") with `TextureRect` (name="Slot0"), `TextureRect` (name="Slot1"), `Label` (name="TimeLabel"), `Label` (name="ScheduleLabel"), `Control` (name="MessageDisplay") [script: `message_display.gd`] → `Label`
+- [ ] Commit: `feat: HUD scene scaffold`
+
+---
+
 ## Phase 1 — Foundation
 
 ### Task 1.1 — Verify Godot project opens
 - [ ] Open `remake/` in Godot 4.4+
-- [ ] Confirm autoloads registered: GameManager, GameClock, MoraleManager, RoomManager
+- [ ] Confirm all 8 autoloads registered: GameManager, GameClock, MoraleManager, RouteRegistry, RoomRegistry, ItemRegistry, RoomManager, CharacterRegistry
 - [ ] Run project — expect black screen, no errors in Output
-- Expected output: `"GameManager ready"`, `"GameClock ready"`, `"MoraleManager ready"`
+- Expected output: `"GameManager ready"`, `"GameClock ready"`, `"MoraleManager ready"`, `"RouteRegistry ready — 46 routes"`, `"RoomRegistry ready — 62 doors mapped"`, `"ItemRegistry ready — 16 items"`, `"CharacterRegistry ready — 25 characters"`
 
 ### Task 1.2 — GameClock unit test
 - [ ] Create `remake/tests/test_game_clock.gd` (GUT test)
@@ -35,8 +83,9 @@ Each task is ~2–5 minutes. TDD tasks follow RED → GREEN → REFACTOR.
 
 ### Task 1.4 — Data classes loadable
 - [ ] Add GUT test that instantiates each Resource subclass
-- [ ] `RouteData.new()`, `WaypointData.new()`, `ItemData.new()`, `RoomData.new()`, `CharacterData.new()`, `DoorData.new()`
+- [ ] `RouteData.new()`, `WaypointData.new()`, `ItemData.new()`, `CharacterData.new()`
 - [ ] Assert no errors, assert exported fields have correct defaults
+- [ ] Also test registry accessors: `RouteRegistry.get_route("halt")` returns non-null, `ItemRegistry.get_item(ItemData.Type.COMPASS)` returns non-null
 - [ ] Commit: `test: data resource classes instantiate cleanly`
 
 ---
@@ -114,12 +163,11 @@ Each task is ~2–5 minutes. TDD tasks follow RED → GREEN → REFACTOR.
 - [ ] Visually verify guard appears to mill around
 - [ ] Commit: `feat: NPC wander mode when route is null`
 
-### Task 4.4 — Seed all 45 routes as .tres files
-- [ ] Create `resources/routes/` with one `.tres` per named route
-- [ ] Source waypoint data from `Engine/Main.c` `routedata[]` array (see C source)
-- [ ] Each route: correct waypoint sequence, loops flag, route_name
-- [ ] Unit test: load each route file, assert waypoint count > 0
-- [ ] Commit: `data: 45 named routes seeded from original`
+### Task 4.4 — Verify all 46 routes in RouteRegistry
+- [ ] All routes are built at runtime in `scripts/autoloads/route_registry.gd` (no .tres files needed)
+- [ ] Unit test: call `RouteRegistry.get_route(name)` for every route name, assert non-null and waypoint count > 0
+- [ ] Key routes to spot-check: `"commandant"` (longest, loops), `"guard_12_bed"` (4 waypoints, no loop), `"prisoner_sleeps_1"` (1 waypoint)
+- [ ] Commit: `test: all 46 routes accessible via RouteRegistry`
 
 ### Task 4.5 — NPC spawns, follows route, despawns
 - [ ] Place 3 NPC CharacterData resources at positions within viewport
@@ -158,11 +206,11 @@ Each task is ~2–5 minutes. TDD tasks follow RED → GREEN → REFACTOR.
 
 ## Phase 6 — Item System
 
-### Task 6.1 — All 16 ItemData resources
-- [ ] Create `resources/items/item_wiresnips.tres` through `item_compass.tres`
-- [ ] Each has correct type enum, display_name
-- [ ] Unit test: load all 16, assert type and name match expected
-- [ ] Commit: `data: 16 item data resources`
+### Task 6.1 — Verify all 16 items in ItemRegistry
+- [ ] All items are built at runtime in `scripts/autoloads/item_registry.gd` (no .tres files needed)
+- [ ] Unit test: call `ItemRegistry.get_item(type)` for all 16 types, assert non-null and display_name not empty
+- [ ] Spot-check: `ItemData.Type.COMPASS` has `is_escape_item() == true`, `ItemData.Type.WIRESNIPS` has `is_escape_item() == false`
+- [ ] Commit: `test: all 16 items accessible via ItemRegistry`
 
 ### Task 6.2 — Item node spawns in world
 - [ ] Place `item.tscn` instance in outdoor_map scene at a map position
@@ -299,11 +347,11 @@ Each task is ~2–5 minutes. TDD tasks follow RED → GREEN → REFACTOR.
 
 ## Phase 11 — All 53 Rooms
 
-### Task 11.1 — Room data resources (53 .tres files)
-- [ ] One `RoomData` resource per room, seeded from C source `rooms[]` data
-- [ ] Each has: room_id, room_name, scene_path, door connections with correct destination room + exit positions
-- [ ] Unit test: load all 53, assert door connections are valid (destination room exists)
-- [ ] Commit: `data: 53 room data resources with door connections`
+### Task 11.1 — Verify all 62 door connections in RoomRegistry
+- [ ] All door connections are defined at runtime in `scripts/autoloads/room_registry.gd` (no .tres files needed)
+- [ ] Unit test: call `RoomRegistry.get_door_exit(id, false)` and `get_door_exit(id, true)` for all 62 door IDs, assert result is non-empty dict with `room_id`, `pos`, `dir` keys
+- [ ] Assert `RoomRegistry.is_initially_locked(0) == true` and `is_initially_locked(5) == false`
+- [ ] Commit: `test: all 62 door connections accessible via RoomRegistry`
 
 ### Task 11.2 — One representative room per type
 - [ ] Hut with beds (hut_1.tscn)

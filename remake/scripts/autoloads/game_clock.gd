@@ -7,7 +7,7 @@ signal night_started
 
 const TIME_MAX: int = 139
 const NIGHT_START: int = 100
-# Frames between each game time increment. Lower = faster days.
+# Frames between each game time increment — lower = faster days
 const TICKS_PER_TIME_UNIT: int = 128
 
 const SCHEDULE: Array[Dictionary] = [
@@ -54,7 +54,6 @@ func _advance_time() -> void:
 	for entry: Dictionary in SCHEDULE:
 		if entry["time"] == game_time:
 			schedule_event_fired.emit(entry["event"])
-			GameManager.tick_solitary_check()
 
 func pause() -> void:
 	_paused = true
@@ -65,7 +64,6 @@ func resume() -> void:
 func get_time_fraction() -> float:
 	return float(game_time) / float(TIME_MAX)
 
-# Returns a display string like "08:00" mapped from game_time 0-139
 func get_display_time() -> String:
 	var hour: int = 6 + int(game_time * 18 / TIME_MAX)
 	return "%02d:00" % (hour % 24)
@@ -76,8 +74,8 @@ func get_next_event_name() -> String:
 			return entry["event"]
 	return SCHEDULE[0]["event"]
 
-func get_ticks_until_next_event() -> int:
-	for entry: Dictionary in SCHEDULE:
-		if entry["time"] > game_time:
-			return (entry["time"] - game_time) * TICKS_PER_TIME_UNIT - _tick_counter
-	return (TIME_MAX - game_time + SCHEDULE[0]["time"]) * TICKS_PER_TIME_UNIT - _tick_counter
+func reset() -> void:
+	game_time = 0
+	is_night = false
+	_tick_counter = 0
+	_paused = false

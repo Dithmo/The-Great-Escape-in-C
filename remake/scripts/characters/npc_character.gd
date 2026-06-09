@@ -33,7 +33,7 @@ func _physics_process(delta: float) -> void:
 			else:
 				route_follower.tick(delta)
 		PursuitController.PursuitMode.DOG_FOOD:
-			_chase_target(pursuit_ctrl.target_node)
+			_chase_food_target(pursuit_ctrl.target_node)
 		PursuitController.PursuitMode.SAW_BRIBE:
 			_chase_target(pursuit_ctrl.target_node)
 		_:
@@ -63,11 +63,23 @@ func _chase_target(target: Node2D) -> void:
 	facing = direction_from_velocity(velocity)
 	animator.play_walk(facing)
 
-	if global_position.distance_to(target.global_position) < 8.0:
-		# Reached target (food, bribed char, etc.)
+func _chase_food_target(target: Node2D) -> void:
+	if not target:
 		pursuit_ctrl.clear()
-		if pursuit_ctrl.mode == PursuitController.PursuitMode.DOG_FOOD:
+		return
+	var dist := global_position.distance_to(target.global_position)
+	if dist < 8.0:
+		# Dog reached the food — check mode BEFORE clearing, then destroy food
+		var was_dog_food := pursuit_ctrl.mode == PursuitController.PursuitMode.DOG_FOOD
+		pursuit_ctrl.clear()
+		if was_dog_food:
 			target.queue_free()
+		return
+	var dir := (target.global_position - global_position).normalized()
+	velocity = dir * MOVE_SPEED
+	move_and_slide()
+	facing = direction_from_velocity(velocity)
+	animator.play_walk(facing)
 
 func assign_route(route: RouteData) -> void:
 	route_follower.set_route(route)
@@ -87,5 +99,4 @@ func _on_red_flag_raised() -> void:
 func _on_red_flag_cleared() -> void:
 	if pursuit_ctrl.mode == PursuitController.PursuitMode.PURSUE:
 		pursuit_ctrl.clear()
-		# Resume prior schedule route
 		_on_schedule_event(GameClock.get_next_event_name())

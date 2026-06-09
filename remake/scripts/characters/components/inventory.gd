@@ -65,7 +65,11 @@ func _find_empty_slot() -> int:
 	return -1
 
 func _spawn_item_at_feet(data: ItemData) -> void:
-	var item_scene: PackedScene = preload("res://scenes/items/item.tscn")
+	# Use load() not preload() — item.tscn may not exist at parse time
+	var item_scene: PackedScene = load("res://scenes/items/item.tscn")
+	if not item_scene:
+		push_warning("Inventory: item.tscn not found, cannot spawn dropped item")
+		return
 	var new_item: Node2D = item_scene.instantiate()
 	new_item.item_data = data
 	var parent: Node2D = get_parent() as Node2D
@@ -78,13 +82,10 @@ func _apply_item(data: ItemData, slot_index: int) -> void:
 			_try_bribe(slot_index)
 		ItemData.Type.POISON:
 			_try_poison_food(slot_index)
-		ItemData.Type.FOOD:
-			pass  # just drop it; dogs react to dropped poisoned food
 
 func _try_bribe(slot_index: int) -> void:
 	var player: Node2D = get_parent() as Node2D
-	var guards := get_tree().get_nodes_in_group("npcs")
-	for guard: Node in guards:
+	for guard: Node in get_tree().get_nodes_in_group("npcs"):
 		var npc := guard as NPCCharacter
 		if npc and player and npc.global_position.distance_to(player.global_position) < 48.0:
 			GameManager.bribed_character_id = npc.character_id

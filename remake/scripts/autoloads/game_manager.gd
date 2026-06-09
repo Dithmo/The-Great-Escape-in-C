@@ -19,6 +19,10 @@ var day_number: int = 1
 func _ready() -> void:
 	print("GameManager ready")
 
+func _process(_delta: float) -> void:
+	if in_solitary and GameClock.game_time >= solitary_release_time:
+		release_from_solitary()
+
 func raise_red_flag() -> void:
 	if red_flag:
 		return
@@ -69,6 +73,15 @@ func check_escape_condition(inventory_slots: Array) -> bool:
 			return false
 	return true
 
+# Called when restarting — resets all state to defaults
 func tick_solitary_check() -> void:
-	if in_solitary and GameClock.game_time >= solitary_release_time:
-		release_from_solitary()
+	pass  # kept for compatibility; logic moved to _process
+
+func reset() -> void:
+	state = GameState.PLAYING
+	red_flag = false
+	in_solitary = false
+	solitary_release_time = -1
+	bribed_character_id = -1
+	current_room_id = 0
+	day_number = 1
