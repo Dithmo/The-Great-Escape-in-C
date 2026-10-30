@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>The Great Escape HD</title>
+<style>
+  :root { --bg: #0b0d12; --panel: #1b1e26; --edge: #3a3f4e; --text: #e8e0c0; --accent: #ffd95a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow: hidden; }
+  #stage { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  #frame { position: relative; width: min(100vw, calc(100vh * 1000 / 600)); aspect-ratio: 1000 / 600; }
+  #game { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  #classic { position: absolute; right: 2%; top: 4%; width: 36%; display: none; border: 2px solid var(--edge); image-rendering: pixelated; background: #000; z-index: 4; }
+  .overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5,6,10,0.72); z-index: 10; }
+  .card { background: var(--panel); border: 2px solid var(--edge); border-radius: 14px; padding: 22px 28px; min-width: 320px; max-width: 92%; max-height: 92%; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+  h1 { margin: 0 0 4px; font-size: 40px; letter-spacing: 4px; color: var(--accent); text-shadow: 0 3px 0 #6b4a10, 0 6px 18px rgba(0,0,0,.8); font-family: Georgia, "Times New Roman", serif; }
+  h2 { margin: 0 0 10px; font-size: 20px; color: var(--accent); }
+  .sub { color: #9aa0b0; font-size: 13px; margin-bottom: 14px; }
+  button { background: #2b3040; color: var(--text); border: 1px solid #4a5068; border-radius: 8px; padding: 9px 16px; margin: 4px 4px 4px 0; font-size: 15px; cursor: pointer; }
+  button:hover { background: #3a4158; }
+  button.primary { background: #b98a1d; color: #1a1408; border-color: #e0b04a; font-weight: 700; }
+  button.primary:hover { background: #d5a128; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin: 6px 0; }
+  label { font-size: 14px; display: inline-flex; gap: 6px; align-items: center; }
+  select { background: #2b3040; color: var(--text); border: 1px solid #4a5068; border-radius: 6px; padding: 4px; }
+  .keyrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; border-bottom: 1px solid #2a2e3a; padding: 2px 0; }
+  .keyrow button { padding: 3px 10px; font-size: 13px; min-width: 90px; }
+  .slots { display: grid; grid-template-columns: auto auto auto; gap: 4px 10px; align-items: center; font-size: 13px; margin: 6px 0; }
+  #toast { position: absolute; left: 50%; top: 8%; transform: translateX(-50%); background: #2b3040; border: 1px solid #4a5068; padding: 8px 16px; border-radius: 8px; display: none; z-index: 20; }
+  #touch { position: absolute; inset: 0; pointer-events: none; z-index: 5; display: none; }
+  .tbtn { position: absolute; pointer-events: auto; width: 64px; height: 64px; border-radius: 50%; background: rgba(40,45,60,0.55); border: 2px solid rgba(200,200,220,0.5); color: #fff; font-size: 18px; display: flex; align-items: center; justify-content: center; user-select: none; touch-action: none; }
+  .tbtn.on { background: rgba(255,217,90,0.6); }
+  #t-up { left: 70px; bottom: 150px; } #t-right { left: 130px; bottom: 150px; } #t-left { left: 70px; bottom: 90px; } #t-down { left: 130px; bottom: 90px; }
+  #t-fire { right: 40px; bottom: 90px; width: 80px; height: 80px; } #t-pickup { right: 130px; bottom: 170px; } #t-drop { right: 130px; bottom: 100px; } #t-useA { right: 200px; bottom: 150px; } #t-useB { right: 60px; bottom: 190px; }
+  @media (pointer: coarse) { #touch { display: block; } }
+  .help p { margin: 6px 0; font-size: 14px; line-height: 1.4; }
+  .help kbd { background: #2b3040; border: 1px solid #4a5068; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+  .credit { font-size: 12px; color: #7a8090; margin-top: 10px; }
+  body.crt #game { filter: contrast(1.05) saturate(1.1); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="frame">
+    <canvas id="game"></canvas>
+    <canvas id="classic"></canvas>
+    <div id="title" class="overlay" style="display:flex">
+      <div class="card" style="text-align:center">
+        <h1>THE GREAT ESCAPE</h1>
+        <div class="sub">HD remake of the 1986 ZX Spectrum classic by Denton Designs / Ocean. Same game, new eyes.</div>
+        <button id="btn-start" class="primary">Start a new game</button>
+        <button id="btn-help2">How to play</button>
+        <div class="slots" style="justify-content:center;margin-top:10px">
+          <span>Slot 1: <span id="slot-0">empty</span></span><button id="load-0">Load</button><button id="save-0">Save</button>
+          <span>Slot 2: <span id="slot-1">empty</span></span><button id="load-1">Load</button><button id="save-1">Save</button>
+          <span>Slot 3: <span id="slot-2">empty</span></span><button id="load-2">Load</button><button id="save-2">Save</button>
+        </div>
+        <div class="credit">Engine ported from David Thomas' reverse engineering of the original. Original game &copy; 1986 Ocean Software / Denton Designs.</div>
+      </div>
+    </div>
+    <div id="menu" class="overlay">
+      <div class="card">
+        <h2>Paused</h2>
+        <div class="row">
+          <button id="btn-resume" class="primary">Resume</button>
+          <button id="btn-restart">Restart (asks to confirm)</button>
+          <button id="btn-title">Back to title</button>
+          <button id="btn-help">Help</button>
+          <button id="btn-mute">Mute / unmute</button>
+        </div>
+        <h2 style="margin-top:14px">Options</h2>
+        <div class="row">
+          <label><input type="checkbox" id="opt-smooth"> Smooth motion</label>
+          <label><input type="checkbox" id="opt-classic"> Classic Spectrum view</label>
+          <label><input type="checkbox" id="opt-minimap"> Minimap</label>
+          <label><input type="checkbox" id="opt-hints"> Control hints</label>
+        </div>
+        <div class="row">
+          <label><input type="checkbox" id="opt-sound"> Sound effects</label>
+          <label><input type="checkbox" id="opt-music"> Title music</label>
+          <label><input type="checkbox" id="opt-crt"> Scanlines</label>
+          <label>Speed <select id="opt-speed"><option value="0.5">0.5x</option><option value="1">1x (original)</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label>
+        </div>
+        <h2 style="margin-top:14px">Keys</h2>
+        <div id="keytable"></div>
+        <div class="sub" style="margin-top:6px">WASD, Enter and 1/2 always work as alternatives. Esc or P pauses. C toggles the classic view, M the minimap, F5/F9 quick save and load.</div>
+      </div>
+    </div>
+    <div id="help" class="overlay">
+      <div class="card help">
+        <h2>How to play</h2>
+        <p>You are a prisoner of war. Follow the camp routine (roll call, breakfast, exercise, bed) to keep the guards calm, and sneak off to gather what you need to escape. Your morale flag drops when you get caught, miss roll call or lose items; if morale hits zero you give up.</p>
+        <p><strong>Movement is isometric:</strong> <kbd>Up</kbd> walks towards the top-left, <kbd>Right</kbd> top-right, <kbd>Down</kbd> bottom-right, <kbd>Left</kbd> bottom-left. If you stop giving input the hero follows the routine on his own (autopilot) and guards lose interest in him.</p>
+        <p><kbd>E</kbd> pick up (fire + up) &nbsp; <kbd>Q</kbd> drop (fire + down) &nbsp; <kbd>Z</kbd> use item 1 (fire + left) &nbsp; <kbd>X</kbd> use item 2 (fire + right). You can carry two items.</p>
+        <p>Keys open their doors, the lockpick opens any lock (takes a while), wire cutters cut through fences, the shovel clears the collapsed tunnel, the torch lights tunnels, poison on food distracts dogs, a bribe turns a prisoner into a decoy. Leave the camp with the right items to escape for good: papers, compass, purse and the uniform all matter.</p>
+        <p>A red flag means you are somewhere you should not be. Being caught means solitary confinement and losing your items.</p>
+        <button id="btn-help-close" class="primary">Close</button>
+      </div>
+    </div>
+    <div id="prompt" class="overlay">
+      <div class="card" style="text-align:center">
+        <div id="prompt-text" style="font-size:20px;margin-bottom:10px"></div>
+        <div id="prompt-buttons"><button id="btn-yes" class="primary">Yes (Y)</button><button id="btn-no">No (N)</button></div>
+      </div>
+    </div>
+    <div id="touch">
+      <div class="tbtn" id="t-up">&#8598;</div><div class="tbtn" id="t-right">&#8599;</div><div class="tbtn" id="t-left">&#8601;</div><div class="tbtn" id="t-down">&#8600;</div>
+      <div class="tbtn" id="t-fire">FIRE</div><div class="tbtn" id="t-pickup">GET</div><div class="tbtn" id="t-drop">DROP</div><div class="tbtn" id="t-useA">USE 1</div><div class="tbtn" id="t-useB">USE 2</div>
+    </div>
+    <div id="toast"></div>
+  </div>
+</div>
+<script src="data.js"></script>
+<script src="engine1.js"></script>
+<script src="engine2.js"></script>
+<script src="engine3.js"></script>
+<script src="engine4.js"></script>
+<script src="hd.js"></script>
+<script src="host.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
