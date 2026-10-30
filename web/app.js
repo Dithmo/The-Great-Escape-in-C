@@ -25,7 +25,7 @@
 
   /* ---- Settings ---- */
   const settings = {
-    smooth: true, classic: false, minimap: false, speed: 1, sound: true, music: true, crt: false, hints: true,
+    art: true, smooth: true, classic: false, minimap: false, speed: 1, sound: true, music: true, crt: false, hints: true,
     keys: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', fire: 'Space', pickup: 'KeyE', drop: 'KeyQ', useA: 'KeyZ', useB: 'KeyX' },
   };
   try { Object.assign(settings, JSON.parse(localStorage.getItem('tge-hd-settings') || '{}')); } catch (e) {}
@@ -511,6 +511,8 @@
   }
   function applySettings() {
     host.soundOn = settings.sound; host.musicOn = settings.music;
+    if (HD.useArt !== settings.art) { HD.useArt = settings.art; HD.clearCaches(); if (state && mode !== 'title') captureTick(); }
+    $('opt-art').checked = settings.art;
     classicCanvas.style.display = settings.classic ? 'block' : 'none';
     document.body.classList.toggle('crt', settings.crt);
     $('opt-smooth').checked = settings.smooth; $('opt-classic').checked = settings.classic; $('opt-minimap').checked = settings.minimap;
@@ -571,7 +573,7 @@
   $('btn-no').onclick = () => answerPrompt(false);
   $('prompt').addEventListener('click', () => { if (mode === 'anykey') answerPrompt(undefined); });
   for (let n = 0; n < 3; n++) { $('save-' + n).onclick = () => saveSlot(n); $('load-' + n).onclick = () => loadSlot(n); $('mload-' + n).onclick = () => loadSlot(n); }
-  ['smooth', 'classic', 'minimap', 'sound', 'music', 'crt', 'hints'].forEach(k => { $('opt-' + k).onchange = (e) => { settings[k] = e.target.checked; applySettings(); }; });
+  ['art', 'smooth', 'classic', 'minimap', 'sound', 'music', 'crt', 'hints'].forEach(k => { $('opt-' + k).onchange = (e) => { settings[k] = e.target.checked; applySettings(); }; });
   $('opt-speed').onchange = (e) => { settings.speed = parseFloat(e.target.value); applySettings(); };
   $('btn-mute').onclick = () => { settings.sound = settings.music = !(settings.sound || settings.music); applySettings(); };
 

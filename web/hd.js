@@ -197,16 +197,33 @@ const HD = (function () {
         }
         const base = tilesetBase(st);
         let cls = ST_CLASS[st];
-        if (cls !== CLASS_ID.VOID && grassLike[base + tile]) cls = CLASS_ID.GRASS;
+        if (cls !== CLASS_ID.VOID && cls !== CLASS_ID.BUILDING && cls !== CLASS_ID.GATE && grassLike[base + tile]) cls = CLASS_ID.GRASS;
         putCell(ET, base + tile, cls, cx, cy);
       }
     } else {
       const IT = D.interior_tiles, to = state.tile_obj;
       const tunnel = state.room_index >= 29;
       const floor = tunnel ? null : interiorFloorMask(state);
+      sceneObjects = [];
+      const useObj = typeof ART_OBJECTS !== 'undefined' && HD.useArt && !tunnel;
+      const hdCells = new Uint8Array(24 * 17);
+      if (useObj) {
+        const rd = D.rooms[state.room_index - 1];
+        let off = 1; const nb = rd[off++]; off += nb * 4; const nm = rd[off++]; off += nm; const nobj = rd[off++];
+        for (let i = 0; i < nobj; i++) {
+          let oi = rd[off++]; const col = rd[off++], row = rd[off++];
+          // mutable room bytes (beds, benches, blockage) come from the engine's shadow bytes
+          oi = get_roomdef(state, state.room_index, off - 3);
+          if (!ART_OBJECTS.has(oi)) continue;
+          const w = D.objects[oi][0], h = D.objects[oi][1];
+          sceneObjects.push({ oi, col, row, w, h });
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const cx = col + x, cy = row + y; if (cx < 24 && cy < 17 && to[cy * 24 + cx] === oi + 1) hdCells[cy * 24 + cx] = 1; }
+        }
+      }
       for (let ty = 0; ty < 17; ty++) for (let tx = 0; tx < 24; tx++) {
         const p = ty * 24 + tx;
-        const tile = tb[p];
+        let tile = tb[p];
+        if (hdCells[p]) tile = 0; // drawn as an HD object instead
         let cls, pap;
         if (tunnel) { cls = (mood === MOODS.torch) ? CLASS_ID.TUNNEL : CLASS_ID.TUNNELDARK; pap = cls; }
         else {
@@ -218,7 +235,8 @@ const HD = (function () {
         putCell(IT, tile, cls, tx + 1, ty + 1, pap);
       }
     }
-    return { originX: state.map_position.x * 8 - 8, originY: state.map_position.y * 8 - 8 };
+    sceneOriginX = state.map_position.x * 8 - 8; sceneOriginY = state.map_position.y * 8 - 8;
+    return { originX: sceneOriginX, originY: sceneOriginY };
   }
 
   /* ---- EPX smoothing (2x, applied twice) on index images ---------------- */
@@ -248,33 +266,71 @@ const HD = (function () {
   const idx1 = new Uint16Array(BUF_W * BUF_H), idx2 = new Uint16Array(BUF_W * BUF_H * 4), idx4 = new Uint16Array(BUF_W * BUF_H * 16);
   const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967296; };
 
+  // Material palettes: per mood and class -> { paper: [4 rgb], ink: [3 rgb], tex, tuft }
+  const SHADE = { a: 0, b: 1, c: 2, d: 3 };
+  let MATS = null;
+  function buildMaterials() {
+    MATS = [];
+    const NIGHT = [30, 40, 90], TORCH = [255, 120, 40];
+    for (let mood = 0; mood < 4; mood++) {
+      const tab = [];
+      for (const name of CLASS_NAMES) {
+        const m = ART_TILES.MATERIALS[name];
+        const adj = (c, isInk) => {
+          let v = hexToRgb(c);
+          if (mood === 1) v = mix(mix(v, [0, 0, 0], isInk ? 0.35 : 0.55), NIGHT, isInk ? 0.2 : 0.25);
+          if (mood === 3) v = mix(mix(v, [0, 0, 0], isInk ? 0.25 : 0.45), NIGHT, isInk ? 0.15 : 0.2);
+          if (mood === 2) v = isInk ? mix(v, TORCH, 0.45) : mix(mix(v, [0, 0, 0], 0.5), TORCH, 0.15);
+          return v.map(clamp255);
+        };
+        const tex = m.tex ? m.tex.map(t => { const a = new Uint8Array(256); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) a[y * 16 + x] = SHADE[t[y][x]]; return a; }) : null;
+        tab.push({ paper: m.paper.map(c => adj(c, false)), ink: m.ink.map(c => adj(c, true)), tex, ntex: tex ? tex.length : 0, tuft: !!m.tuft });
+      }
+      MATS.push(tab);
+    }
+  }
+  let sceneOriginX = 0, sceneOriginY = 0;
+  let sceneObjects = [];
+
   function renderScene(mood, lit) {
+    if (!MATS) buildMaterials();
     const n = BUF_W * BUF_H;
     for (let i = 0; i < n; i++) idx1[i] = sceneBits[i] ? sceneCls[i] * 2 + 1 : scenePap[i] * 2;
     epx2x(idx1, BUF_W, BUF_H, idx2);
     epx2x(idx2, BUF_W * 2, BUF_H * 2, idx4);
-    const pal = PALETTE[mood];
+    const mats = MATS[mood];
     const px = sceneImg.data;
     const W = BUF_W * SCALE, H = BUF_H * SCALE;
+    const tuft = ART_TILES.tuft;
+    const ox4 = sceneOriginX * SCALE, oy4 = sceneOriginY * SCALE;
     for (let y = 0; y < H; y++) {
+      const ay = oy4 + y;                 // absolute HD pixel
+      const ty = (ay >> 1) & 15;          // texture row (texture pixels are 2x2 HD pixels)
+      const yUp = y > 0 ? y - 1 : y, yDn = y < H - 1 ? y + 1 : y;
       for (let x = 0; x < W; x++) {
         const v = idx4[y * W + x];
         const cls = v >> 1, bit = v & 1;
-        const col = pal[cls][bit];
-        let r = col[0], g = col[1], b = col[2];
-        const tex = CLASSES[CLASS_NAMES[cls]].tex;
-        if (!bit && tex) {
-          // procedural paper texture, deterministic per absolute pixel
-          const hx = x >> 1, hy = y >> 1;
-          let t = 0;
-          if (tex === 'grass') { const n1 = hash(hx >> 1, hy >> 1); t = (n1 - 0.5) * 0.22 + ((hy & 3) === 0 && n1 > 0.8 ? 0.12 : 0); }
-          else if (tex === 'brick') { const by = (y >> 3), bx = ((x + ((by & 1) ? 8 : 0)) >> 4); t = ((y & 7) === 0 || ((x + ((by & 1) ? 8 : 0)) & 15) === 0) ? -0.15 : (hash(bx, by) - 0.5) * 0.08; }
-          else if (tex === 'plank') { t = ((x & 15) === 0) ? -0.18 : (hash(x >> 4, y >> 2) - 0.5) * 0.06; }
-          else if (tex === 'roof') { t = ((y & 3) === 0) ? -0.12 : 0.03; }
-          else if (tex === 'gravel') { t = (hash(hx, hy) - 0.5) * 0.14; }
-          else if (tex === 'floor') { t = ((y + x) % 16 < 1) ? -0.14 : (hash((x + y) >> 4, (x - y) >> 4) - 0.5) * 0.06; }
-          r = clamp255(r * (1 + t)); g = clamp255(g * (1 + t)); b = clamp255(b * (1 + t));
+        const m = mats[cls];
+        let col;
+        if (!bit) {
+          if (m.tex) {
+            const ax = ox4 + x;
+            const variant = m.ntex > 1 ? (((ax >> 5) * 7 + (ay >> 5) * 13) % m.ntex) : 0;
+            const sh = m.tex[variant][ty * 16 + ((ax >> 1) & 15)];
+            col = m.paper[sh];
+          } else col = m.paper[1];
+        } else if (m.tuft && grassDot(x, y, W, H)) {
+          const t = tuft[y & 3][x & 3];
+          const gm = mats[CLASS_ID.GRASS];
+          if (t === 0) { const ax = ox4 + x; const sh = m.tex[0][ty * 16 + ((ax >> 1) & 15)]; col = m.paper[sh]; }
+          else col = gm.ink[t === 1 ? 2 : 0];
+        } else {
+          // relief: top edge highlight, bottom edge shadow
+          const up = idx4[yUp * W + x] & 1, dn = idx4[yDn * W + x] & 1;
+          const lf = x > 0 ? idx4[y * W + x - 1] & 1 : 1, rt = x < W - 1 ? idx4[y * W + x + 1] & 1 : 1;
+          if (!up || !lf) col = m.ink[2]; else if (!dn || !rt) col = m.ink[0]; else col = m.ink[1];
         }
+        let r = col[0], g = col[1], b = col[2];
         if (lit) {
           const l = lit[((y / SCALE) >> 3) * BUF_COLS + ((x / SCALE) >> 3)];
           if (l) { r = clamp255(r * 1.25 + 60); g = clamp255(g * 1.2 + 50); b = clamp255(b * 0.9 + 10); }
@@ -284,6 +340,18 @@ const HD = (function () {
       }
     }
     sceneCtx.putImageData(sceneImg, 0, 0);
+  }
+  // Is this HD ink pixel part of an isolated dot (grass)? Check the 1x source pixel's neighbourhood.
+  function grassDot(x, y, W, H) {
+    const sx = x >> 2, sy = y >> 2;
+    const i = sy * BUF_W + sx;
+    if (!sceneBits[i]) return false;
+    let n = 0;
+    if (sx > 0 && sceneBits[i - 1]) n++;
+    if (sx < BUF_W - 1 && sceneBits[i + 1]) n++;
+    if (sy > 0 && sceneBits[i - BUF_W]) n++;
+    if (sy < BUF_H - 1 && sceneBits[i + BUF_W]) n++;
+    return n === 0;
   }
 
   /* ---- Sprites ---------------------------------------------------------- */
@@ -375,8 +443,14 @@ const HD = (function () {
     let cv = spriteCache.get(key);
     if (!cv) {
       const def = D.sprites[spriteBase + frameIndex];
-      const kind = spriteKind(spriteBase, frameIndex);
-      cv = buildSprite(def, SPRITE_PAL[kind], flip, '#0a0a12');
+      if (typeof ART !== 'undefined' && HD.useArt) {
+        const desc = ART.frameFor(spriteBase + frameIndex);
+        cv = ART.renderFrame(desc, SCALE / 2, flip);
+        cv.dy = def.height - desc.h / 2; // align the art's feet with the engine's sprite box bottom
+      } else {
+        const kind = spriteKind(spriteBase, frameIndex);
+        cv = buildSprite(def, SPRITE_PAL[kind], flip, '#0a0a12');
+      }
       spriteCache.set(key, cv);
     }
     return cv;
@@ -386,6 +460,12 @@ const HD = (function () {
   function getItem(item, poisoned) {
     const key = item * 2 + (poisoned ? 1 : 0);
     let cv = itemCache.get(key);
+    if (!cv && typeof ART_ITEMS !== 'undefined' && HD.useArt) {
+      const desc = ART_ITEMS.frameFor(item, poisoned);
+      cv = ART.renderFrame(desc, SCALE / 2, false);
+      cv.dy = D.items[item].height - desc.h / 2;
+      itemCache.set(key, cv);
+    }
     if (!cv) {
       const def = { width: 3, height: D.items[item].height, bitmap: D.items[item].bitmap, mask: D.items[item].mask }; // 16 px wide
       const ink = poisoned ? '#d48bff' : ITEM_PAL[item];
@@ -425,12 +505,17 @@ const HD = (function () {
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, WIN_W * SCALE, WIN_H * SCALE); ctx.clip();
     ctx.drawImage(sceneCanvas, Math.round((scene.originX - viewX) * SCALE), Math.round((scene.originY - viewY) * SCALE));
+    for (const o of sceneObjects) {
+      const img = ART_OBJECTS.image(o.oi, o.w, o.h, SCALE / 2);
+      if (img) ctx.drawImage(img, Math.round((scene.originX + 8 + o.col * 8 - viewX) * SCALE), Math.round((scene.originY + 8 + o.row * 8 - viewY) * SCALE));
+    }
     for (const s of sprites) {
-      const dx = (s.x - viewX) * SCALE, dy = (s.y - viewY) * SCALE;
+      const ady = s.image.dy || 0;
+      const dx = (s.x - viewX) * SCALE, dy = (s.y + ady - viewY) * SCALE;
       if (s.maskbuf) {
         tmpCtx.clearRect(0, 0, tmpCanvas.width, tmpCanvas.height);
         // sprite position within mask region
-        const ox = (s.x - s.maskOriginX) * SCALE, oy = (s.y - s.maskOriginY) * SCALE;
+        const ox = (s.x - s.maskOriginX) * SCALE, oy = (s.y + ady - s.maskOriginY) * SCALE;
         tmpCtx.drawImage(s.image, ox, oy);
         tmpCtx.globalCompositeOperation = 'destination-in';
         tmpCtx.drawImage(buildMask(s.maskbuf), 0, 0);
@@ -454,5 +539,6 @@ const HD = (function () {
     ctx.restore();
   }
 
-  return { SCALE, WIN_W, WIN_H, BUF_COLS, BUF_ROWS, MOODS, CLASS_ID, stClass: (st) => ST_CLASS[st], init, buildScene, renderScene, getSprite, getItem, composeFrame, sceneLit, hexToRgb, epx2x };
+  function clearCaches() { spriteCache.clear(); itemCache.clear(); }
+  return { useArt: true, clearCaches, SCALE, WIN_W, WIN_H, BUF_COLS, BUF_ROWS, MOODS, CLASS_ID, stClass: (st) => ST_CLASS[st], init, buildScene, renderScene, getSprite, getItem, composeFrame, sceneLit, hexToRgb, epx2x };
 })();

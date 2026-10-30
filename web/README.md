@@ -29,23 +29,31 @@ the pause menu shows the engine's real Spectrum screen next to the HD view.
 
 All game data (tiles, supertiles, map, sprites, masks, rooms, objects, font,
 music) is extracted from the C sources by `tools/dumpdata.c` and packed by
-`tools/gendata.js` into `web/data.js`.
+`tools/gendata.js` into `web/data.js`. The engine still draws the original
+1-bit Spectrum frame (visible with the "Classic Spectrum view" option); the HD
+view is a separate renderer fed by the engine's state.
 
-The HD look is generated at load time by `web/hd.js`:
+The default "hand-drawn art" mode uses new artwork authored for this remake:
 
-* every exterior supertile is classified by hand (grass, hut roof, hut wall,
-  main building, road, fence, watchtower, gate), interior tiles by the object
-  that drew them (bed, wardrobe, door, window, tunnel...) and room floors are
-  found by flood-filling the room outline;
-* each class gets its own paper/ink palette, a procedural texture (grass tufts,
-  bricks, planks, corrugated roof, floorboards) and day / night / torch moods;
-* the 1-bit scene is upscaled 4x with an edge-preserving smoothing filter;
-* characters are re-coloured from their silhouettes with per-body-band palettes
-  (cap, face, jacket, trousers, boots) for the hero, guards and the commandant,
-  then outlined and shaded; dogs, stove, crate and the 16 items get their own
-  palettes;
-* foreground occlusion uses the engine's own mask buffer, smoothed to 4x;
-* the night searchlight is drawn from the engine's lit cells plus a soft glow.
+* `web/art_chars.js`: the hero, guards and the commandant are built from
+  hand-pixelled parts (heads, caps, bodies, a four-frame leg cycle) drawn at
+  twice the Spectrum resolution, with crawling frames, dogs, the stove and the
+  crate; frame numbers and footprints follow the engine's sprite table so
+  positions and occlusion stay exact.
+* `web/art_items.js`: the 16 items as new icons.
+* `web/art_tiles.js`: hand-drawn material textures (grass, gravel, planks,
+  corrugated roof, brick, floorboards, tunnel earth) laid under the camp's
+  tile structure, with bevelled relief lines and grass tufts.
+* `web/art_objects.js`: room fittings (beds, tables, chairs, wardrobes,
+  drawers, cupboards, benches, windows, door frames, stove pipe, shelves,
+  sink, desk, noticeboard, key rack) drawn with a small isometric pixel
+  toolkit and placed where the room definitions put them.
+
+The exterior map structure itself (hut, building, fence and tower layout)
+necessarily follows the original tile data, so the camp is a re-skin of the
+original geometry rather than a redrawn map. Turning "Hand-drawn art" off in
+the pause menu shows the earlier look: the original pixels classified by
+material, coloured, textured and smoothed 4x.
 
 ## Quality of life (none change the simulation)
 
