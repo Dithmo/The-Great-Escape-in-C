@@ -387,7 +387,7 @@ const HD = (function () {
     const key = item * 2 + (poisoned ? 1 : 0);
     let cv = itemCache.get(key);
     if (!cv) {
-      const def = D.items[item];
+      const def = { width: 3, height: D.items[item].height, bitmap: D.items[item].bitmap, mask: D.items[item].mask }; // 16 px wide
       const ink = poisoned ? '#d48bff' : ITEM_PAL[item];
       const fill = mix(hexToRgb(ink), [0, 0, 0], 0.6).map(clamp255);
       cv = buildSprite(def, [[ink, '#' + fill.map(v => v.toString(16).padStart(2, '0')).join('')]], false, '#0a0a12');

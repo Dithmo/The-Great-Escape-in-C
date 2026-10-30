@@ -27,8 +27,9 @@
   .keyrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; border-bottom: 1px solid #2a2e3a; padding: 2px 0; }
   .keyrow button { padding: 3px 10px; font-size: 13px; min-width: 90px; }
   .slots { display: grid; grid-template-columns: auto auto auto; gap: 4px 10px; align-items: center; font-size: 13px; margin: 6px 0; }
+  #prompt.bottom { align-items: flex-end; background: transparent; padding-bottom: 12%; pointer-events: auto; }
   #toast { position: absolute; left: 50%; top: 8%; transform: translateX(-50%); background: #2b3040; border: 1px solid #4a5068; padding: 8px 16px; border-radius: 8px; display: none; z-index: 20; }
-  #touch { position: absolute; inset: 0; pointer-events: none; z-index: 5; display: none; }
+  #touch { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; }
   .tbtn { position: absolute; pointer-events: auto; width: 64px; height: 64px; border-radius: 50%; background: rgba(40,45,60,0.55); border: 2px solid rgba(200,200,220,0.5); color: #fff; font-size: 18px; display: flex; align-items: center; justify-content: center; user-select: none; touch-action: none; }
   .tbtn.on { background: rgba(255,217,90,0.6); }
   #t-up { left: 70px; bottom: 150px; } #t-right { left: 130px; bottom: 150px; } #t-left { left: 70px; bottom: 90px; } #t-down { left: 130px; bottom: 90px; }
@@ -52,9 +53,9 @@
         <button id="btn-start" class="primary">Start a new game</button>
         <button id="btn-help2">How to play</button>
         <div class="slots" style="justify-content:center;margin-top:10px">
-          <span>Slot 1: <span id="slot-0">empty</span></span><button id="load-0">Load</button><button id="save-0">Save</button>
-          <span>Slot 2: <span id="slot-1">empty</span></span><button id="load-1">Load</button><button id="save-1">Save</button>
-          <span>Slot 3: <span id="slot-2">empty</span></span><button id="load-2">Load</button><button id="save-2">Save</button>
+          <span>Slot 1: <span id="slot-0">empty</span></span><button id="load-0">Load</button><span></span>
+          <span>Slot 2: <span id="slot-1">empty</span></span><button id="load-1">Load</button><span></span>
+          <span>Slot 3: <span id="slot-2">empty</span></span><button id="load-2">Load</button><span></span>
         </div>
         <div class="credit">Engine ported from David Thomas' reverse engineering of the original. Original game &copy; 1986 Ocean Software / Denton Designs.</div>
       </div>
@@ -82,6 +83,12 @@
           <label><input type="checkbox" id="opt-crt"> Scanlines</label>
           <label>Speed <select id="opt-speed"><option value="0.5">0.5x</option><option value="1">1x (original)</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label>
         </div>
+        <h2 style="margin-top:14px">Save states</h2>
+        <div class="slots">
+          <span>Slot 1: <span id="mslot-0">empty</span></span><button id="save-0">Save</button><button id="mload-0">Load</button>
+          <span>Slot 2: <span id="mslot-1">empty</span></span><button id="save-1">Save</button><button id="mload-1">Load</button>
+          <span>Slot 3: <span id="mslot-2">empty</span></span><button id="save-2">Save</button><button id="mload-2">Load</button>
+        </div>
         <h2 style="margin-top:14px">Keys</h2>
         <div id="keytable"></div>
         <div class="sub" style="margin-top:6px">WASD, Enter and 1/2 always work as alternatives. Esc or P pauses. C toggles the classic view, M the minimap, F5/F9 quick save and load.</div>
@@ -104,12 +111,12 @@
         <div id="prompt-buttons"><button id="btn-yes" class="primary">Yes (Y)</button><button id="btn-no">No (N)</button></div>
       </div>
     </div>
-    <div id="touch">
+    <div id="toast"></div>
+  </div>
+  <div id="touch">
       <div class="tbtn" id="t-up">&#8598;</div><div class="tbtn" id="t-right">&#8599;</div><div class="tbtn" id="t-left">&#8601;</div><div class="tbtn" id="t-down">&#8600;</div>
       <div class="tbtn" id="t-fire">FIRE</div><div class="tbtn" id="t-pickup">GET</div><div class="tbtn" id="t-drop">DROP</div><div class="tbtn" id="t-useA">USE 1</div><div class="tbtn" id="t-useB">USE 2</div>
     </div>
-    <div id="toast"></div>
-  </div>
 </div>
 <script>
 // ---- data.js ----
@@ -4300,7 +4307,7 @@ const HD = (function () {
     const key = item * 2 + (poisoned ? 1 : 0);
     let cv = itemCache.get(key);
     if (!cv) {
-      const def = D.items[item];
+      const def = { width: 3, height: D.items[item].height, bitmap: D.items[item].bitmap, mask: D.items[item].mask }; // 16 px wide
       const ink = poisoned ? '#d48bff' : ITEM_PAL[item];
       const fill = mix(hexToRgb(ink), [0, 0, 0], 0.6).map(clamp255);
       cv = buildSprite(def, [[ink, '#' + fill.map(v => v.toString(16).padStart(2, '0')).join('')]], false, '#0a0a12');
@@ -4563,31 +4570,37 @@ const Host = (function () {
     }
 
     /* ---- Save states ---- */
-    const SKIP = new Set(['D', 'speccy', 'pending', 'bm_arr', 'mk_arr', 'vis_clip']);
+    const SKIP = new Set(['D', 'speccy', 'pending', 'bm_arr', 'mk_arr', 'vis_clip', 'screen', 'attrs']);
+    function pack(v) {
+      if (v instanceof Uint8Array) return { __u8: Array.from(v) };
+      if (Array.isArray(v)) return v.map(pack);
+      if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = pack(v[k]); return o; }
+      return v;
+    }
+    function unpack(v) {
+      if (v && typeof v === 'object') {
+        if (v.__u8) return new Uint8Array(v.__u8);
+        if (Array.isArray(v)) return v.map(unpack);
+        const o = {}; for (const k of Object.keys(v)) o[k] = unpack(v[k]); return o;
+      }
+      return v;
+    }
     function serialize() {
       const s = host.state;
       const out = {};
       for (const k of Object.keys(s)) {
         if (SKIP.has(k)) continue;
-        const v = s[k];
-        if (v instanceof Uint8Array) out[k] = { u8: Array.from(v) };
-        else if (k === 'IY') out[k] = v ? v.index : -1;
-        else if (k === 'screen' || k === 'attrs') out[k] = { u8: Array.from(v) };
-        else out[k] = v;
+        if (k === 'IY') { out[k] = s.IY ? s.IY.index : -1; continue; }
+        out[k] = pack(s[k]);
       }
-      out._bm = s.bm_arr ? 'x' : null;
       return { version: 1, day: host.day, state: out, screen: Array.from(speccy.screen.pixels), attrs: Array.from(speccy.screen.attributes) };
     }
     function deserialize(obj) {
       const state = tge_create(D, speccy);
       const src = obj.state;
       for (const k of Object.keys(src)) {
-        if (k === '_bm') continue;
-        const v = src[k];
-        if (k === 'IY') { state.IY = v >= 0 ? state.vischars[v] : null; continue; }
-        if (v && v.u8) { state[k] = new Uint8Array(v.u8); continue; }
-        if (k === 'vischars') { v.forEach((vc, i) => Object.assign(state.vischars[i], vc)); continue; }
-        state[k] = v;
+        if (k === 'IY') { state.IY = src[k] >= 0 ? state.vischars[src[k]] : null; continue; }
+        state[k] = unpack(src[k]);
       }
       state.screen = speccy.screen.pixels; state.attrs = speccy.screen.attributes;
       speccy.screen.pixels.set(obj.screen); speccy.screen.attributes.set(obj.attrs);
@@ -4758,8 +4771,9 @@ const Host = (function () {
       } else if (r.type === 'confirm' || r.type === 'anykey') {
         waitReq = r; mode = r.type; captureTick();
         $('prompt').style.display = 'flex';
-        $('prompt-text').textContent = r.type === 'confirm' ? 'Restart the game?' : (state.in_solitary ? '' : 'Press any key');
+        $('prompt-text').textContent = r.type === 'confirm' ? 'Restart the game?' : 'Press any key to continue';
         $('prompt-buttons').style.display = r.type === 'confirm' ? 'block' : 'none';
+        $('prompt').classList.toggle('bottom', r.type === 'anykey');
         return [];
       }
     }
@@ -4833,7 +4847,9 @@ const Host = (function () {
     ctx.save();
     ctx.translate(WX, WY);
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, WW, WH);
-    if (mode === 'zoombox' && zoom) {
+    if (mode === 'anykey' || mode === 'confirm') {
+      // the engine has wiped the window for a text screen: show black plus the decoded text
+    } else if (mode === 'zoombox' && zoom) {
       // growing box reveal
       let tt = zoom.t, i = 0, acc2 = 0;
       for (; i < zoom.steps.length; i++) { acc2 += zoom.steps[i].delay / 3500000; if (acc2 > tt) break; }
@@ -4847,6 +4863,7 @@ const Host = (function () {
     } else {
       HD.composeFrame(ctx, scene, vx, vy, sprites, glow);
     }
+    if (mode === 'anykey' || mode === 'confirm') drawWindowText();
     if (settings.crt) drawScanlines(ctx, WW, WH);
     ctx.restore();
     drawHUD();
@@ -4854,6 +4871,22 @@ const Host = (function () {
     if (settings.classic) renderClassic();
   }
 
+  // Decode any text the engine wrote into the game window (end-of-game and confirm screens) and draw it in HD.
+  function drawWindowText() {
+    for (let r = 2; r <= 17; r++) for (let c = 7; c <= 29; c++) {
+      const addr = ((r & 0x18) << 8) | ((r & 7) << 5) | c;
+      let match = -1;
+      for (let g = 0; g < 38; g++) {
+        let ok = true;
+        for (let k = 0; k < 8; k++) if (state.screen[addr + 256 * k] !== D.font[g * 8 + k]) { ok = false; break; }
+        if (ok) { match = g; break; }
+      }
+      if (match <= 0 && match !== 0) continue;
+      if (match === 35) continue; // space
+      const ch = FONT_REV[match] || '?';
+      drawText(ctx, ch, (c - 7) * 32, (r - 2) * 32, '#ffe8a0', 4);
+    }
+  }
   function drawScanlines(c, w, h) {
     c.fillStyle = 'rgba(0,0,0,0.18)';
     for (let y = 0; y < h; y += 4) c.fillRect(0, y, w, 2);
@@ -4933,7 +4966,7 @@ const Host = (function () {
     ctx.fillStyle = panel; roundRect(ctx, 10, 540, 980, 50, 10); ctx.fill();
     const msg = decodeMessageRow(state);
     drawText(ctx, msg, 30, 554, '#ffe8a0', 3);
-    if (settings.hints && !msg) {
+    if (settings.hints && !msg && mode === 'playing') {
       const hint = state.room_index >= 29 ? 'TUNNEL: CRAWL WITH THE DIRECTION KEYS' :
         (state.hero_in_bed ? 'PRESS A DIRECTION TO GET UP' : 'E PICK UP   Q DROP   Z USE 1   X USE 2');
       drawText(ctx, hint, 30, 560, '#5a6070', 2);
@@ -5145,7 +5178,7 @@ const Host = (function () {
       const s = localStorage.getItem('tge-hd-save-' + n);
       let label = 'empty';
       if (s) { try { const o = JSON.parse(s); label = 'Day ' + (o.day || 1) + ', ' + timeString(o.state.clock) + ', score ' + o.state.score_digits.join(''); } catch (e) { label = 'saved'; } }
-      $('slot-' + n).textContent = label;
+      $('slot-' + n).textContent = label; $('mslot-' + n).textContent = label;
     }
   }
   let toastTimer = null;
@@ -5161,7 +5194,7 @@ const Host = (function () {
   $('btn-yes').onclick = () => answerPrompt(true);
   $('btn-no').onclick = () => answerPrompt(false);
   $('prompt').addEventListener('click', () => { if (mode === 'anykey') answerPrompt(undefined); });
-  for (let n = 0; n < 3; n++) { $('save-' + n).onclick = () => saveSlot(n); $('load-' + n).onclick = () => loadSlot(n); }
+  for (let n = 0; n < 3; n++) { $('save-' + n).onclick = () => saveSlot(n); $('load-' + n).onclick = () => loadSlot(n); $('mload-' + n).onclick = () => loadSlot(n); }
   ['smooth', 'classic', 'minimap', 'sound', 'music', 'crt', 'hints'].forEach(k => { $('opt-' + k).onchange = (e) => { settings[k] = e.target.checked; applySettings(); }; });
   $('opt-speed').onchange = (e) => { settings.speed = parseFloat(e.target.value); applySettings(); };
   $('btn-mute').onclick = () => { settings.sound = settings.music = !(settings.sound || settings.music); applySettings(); };

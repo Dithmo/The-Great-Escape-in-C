@@ -147,8 +147,9 @@
       } else if (r.type === 'confirm' || r.type === 'anykey') {
         waitReq = r; mode = r.type; captureTick();
         $('prompt').style.display = 'flex';
-        $('prompt-text').textContent = r.type === 'confirm' ? 'Restart the game?' : (state.in_solitary ? '' : 'Press any key');
+        $('prompt-text').textContent = r.type === 'confirm' ? 'Restart the game?' : 'Press any key to continue';
         $('prompt-buttons').style.display = r.type === 'confirm' ? 'block' : 'none';
+        $('prompt').classList.toggle('bottom', r.type === 'anykey');
         return [];
       }
     }
@@ -222,7 +223,9 @@
     ctx.save();
     ctx.translate(WX, WY);
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, WW, WH);
-    if (mode === 'zoombox' && zoom) {
+    if (mode === 'anykey' || mode === 'confirm') {
+      // the engine has wiped the window for a text screen: show black plus the decoded text
+    } else if (mode === 'zoombox' && zoom) {
       // growing box reveal
       let tt = zoom.t, i = 0, acc2 = 0;
       for (; i < zoom.steps.length; i++) { acc2 += zoom.steps[i].delay / 3500000; if (acc2 > tt) break; }
@@ -236,6 +239,7 @@
     } else {
       HD.composeFrame(ctx, scene, vx, vy, sprites, glow);
     }
+    if (mode === 'anykey' || mode === 'confirm') drawWindowText();
     if (settings.crt) drawScanlines(ctx, WW, WH);
     ctx.restore();
     drawHUD();
@@ -243,6 +247,22 @@
     if (settings.classic) renderClassic();
   }
 
+  // Decode any text the engine wrote into the game window (end-of-game and confirm screens) and draw it in HD.
+  function drawWindowText() {
+    for (let r = 2; r <= 17; r++) for (let c = 7; c <= 29; c++) {
+      const addr = ((r & 0x18) << 8) | ((r & 7) << 5) | c;
+      let match = -1;
+      for (let g = 0; g < 38; g++) {
+        let ok = true;
+        for (let k = 0; k < 8; k++) if (state.screen[addr + 256 * k] !== D.font[g * 8 + k]) { ok = false; break; }
+        if (ok) { match = g; break; }
+      }
+      if (match <= 0 && match !== 0) continue;
+      if (match === 35) continue; // space
+      const ch = FONT_REV[match] || '?';
+      drawText(ctx, ch, (c - 7) * 32, (r - 2) * 32, '#ffe8a0', 4);
+    }
+  }
   function drawScanlines(c, w, h) {
     c.fillStyle = 'rgba(0,0,0,0.18)';
     for (let y = 0; y < h; y += 4) c.fillRect(0, y, w, 2);
@@ -322,7 +342,7 @@
     ctx.fillStyle = panel; roundRect(ctx, 10, 540, 980, 50, 10); ctx.fill();
     const msg = decodeMessageRow(state);
     drawText(ctx, msg, 30, 554, '#ffe8a0', 3);
-    if (settings.hints && !msg) {
+    if (settings.hints && !msg && mode === 'playing') {
       const hint = state.room_index >= 29 ? 'TUNNEL: CRAWL WITH THE DIRECTION KEYS' :
         (state.hero_in_bed ? 'PRESS A DIRECTION TO GET UP' : 'E PICK UP   Q DROP   Z USE 1   X USE 2');
       drawText(ctx, hint, 30, 560, '#5a6070', 2);
@@ -534,7 +554,7 @@
       const s = localStorage.getItem('tge-hd-save-' + n);
       let label = 'empty';
       if (s) { try { const o = JSON.parse(s); label = 'Day ' + (o.day || 1) + ', ' + timeString(o.state.clock) + ', score ' + o.state.score_digits.join(''); } catch (e) { label = 'saved'; } }
-      $('slot-' + n).textContent = label;
+      $('slot-' + n).textContent = label; $('mslot-' + n).textContent = label;
     }
   }
   let toastTimer = null;
@@ -550,7 +570,7 @@
   $('btn-yes').onclick = () => answerPrompt(true);
   $('btn-no').onclick = () => answerPrompt(false);
   $('prompt').addEventListener('click', () => { if (mode === 'anykey') answerPrompt(undefined); });
-  for (let n = 0; n < 3; n++) { $('save-' + n).onclick = () => saveSlot(n); $('load-' + n).onclick = () => loadSlot(n); }
+  for (let n = 0; n < 3; n++) { $('save-' + n).onclick = () => saveSlot(n); $('load-' + n).onclick = () => loadSlot(n); $('mload-' + n).onclick = () => loadSlot(n); }
   ['smooth', 'classic', 'minimap', 'sound', 'music', 'crt', 'hints'].forEach(k => { $('opt-' + k).onchange = (e) => { settings[k] = e.target.checked; applySettings(); }; });
   $('opt-speed').onchange = (e) => { settings.speed = parseFloat(e.target.value); applySettings(); };
   $('btn-mute').onclick = () => { settings.sound = settings.music = !(settings.sound || settings.music); applySettings(); };

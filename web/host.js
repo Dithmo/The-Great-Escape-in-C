@@ -188,31 +188,37 @@ const Host = (function () {
     }
 
     /* ---- Save states ---- */
-    const SKIP = new Set(['D', 'speccy', 'pending', 'bm_arr', 'mk_arr', 'vis_clip']);
+    const SKIP = new Set(['D', 'speccy', 'pending', 'bm_arr', 'mk_arr', 'vis_clip', 'screen', 'attrs']);
+    function pack(v) {
+      if (v instanceof Uint8Array) return { __u8: Array.from(v) };
+      if (Array.isArray(v)) return v.map(pack);
+      if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = pack(v[k]); return o; }
+      return v;
+    }
+    function unpack(v) {
+      if (v && typeof v === 'object') {
+        if (v.__u8) return new Uint8Array(v.__u8);
+        if (Array.isArray(v)) return v.map(unpack);
+        const o = {}; for (const k of Object.keys(v)) o[k] = unpack(v[k]); return o;
+      }
+      return v;
+    }
     function serialize() {
       const s = host.state;
       const out = {};
       for (const k of Object.keys(s)) {
         if (SKIP.has(k)) continue;
-        const v = s[k];
-        if (v instanceof Uint8Array) out[k] = { u8: Array.from(v) };
-        else if (k === 'IY') out[k] = v ? v.index : -1;
-        else if (k === 'screen' || k === 'attrs') out[k] = { u8: Array.from(v) };
-        else out[k] = v;
+        if (k === 'IY') { out[k] = s.IY ? s.IY.index : -1; continue; }
+        out[k] = pack(s[k]);
       }
-      out._bm = s.bm_arr ? 'x' : null;
       return { version: 1, day: host.day, state: out, screen: Array.from(speccy.screen.pixels), attrs: Array.from(speccy.screen.attributes) };
     }
     function deserialize(obj) {
       const state = tge_create(D, speccy);
       const src = obj.state;
       for (const k of Object.keys(src)) {
-        if (k === '_bm') continue;
-        const v = src[k];
-        if (k === 'IY') { state.IY = v >= 0 ? state.vischars[v] : null; continue; }
-        if (v && v.u8) { state[k] = new Uint8Array(v.u8); continue; }
-        if (k === 'vischars') { v.forEach((vc, i) => Object.assign(state.vischars[i], vc)); continue; }
-        state[k] = v;
+        if (k === 'IY') { state.IY = src[k] >= 0 ? state.vischars[src[k]] : null; continue; }
+        state[k] = unpack(src[k]);
       }
       state.screen = speccy.screen.pixels; state.attrs = speccy.screen.attributes;
       speccy.screen.pixels.set(obj.screen); speccy.screen.attributes.set(obj.attrs);

@@ -19,6 +19,11 @@ This is a port to C of “[The Great Escape](http://www.worldofspectrum.org/info
 The portable C sources have allowed builds for the [web](http://www.davespace.co.uk/TheGreatEscape/TheGreatEscape.html), using emscripten and even the [BBC Micro](https://stardot.org.uk/forums/viewtopic.php?f=74&t=23478), via a Raspberry Pi second processor.
 
 
+## HD browser remake
+
+`dist/TheGreatEscapeHD.html` is a single-file HTML remake built on a JavaScript port of this engine, verified frame-exact against the C build, with new HD graphics and quality-of-life features. See [`web/README.md`](web/README.md).
+
+
 ## Project Write-up
 
 http://www.davespace.co.uk/the.great.escape/ (2019)
