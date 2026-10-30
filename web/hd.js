@@ -178,6 +178,7 @@ const HD = (function () {
     const outdoors = state.room_index === 0;
     sceneBits.fill(0); sceneCls.fill(outdoors ? CLASS_ID.VOID : CLASS_ID.DARK);
     if (outdoors) {
+      sceneObjects = [];
       const ET = D.exterior_tiles, ST = D.supertiles, MAP = D.map;
       const mx = state.map_position.x, my = state.map_position.y;
       for (let cy = 0; cy < BUF_ROWS; cy++) for (let cx = 0; cx < BUF_COLS; cx++) {
