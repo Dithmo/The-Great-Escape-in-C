@@ -25,7 +25,7 @@
 
   /* ---- Settings ---- */
   const settings = {
-    art: true, smooth: true, classic: false, minimap: false, speed: 1, sound: true, music: true, crt: false, hints: true,
+    art: true, painted: true, smooth: true, classic: false, minimap: false, speed: 1, sound: true, music: true, crt: false, hints: true,
     keys: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', fire: 'Space', pickup: 'KeyE', drop: 'KeyQ', useA: 'KeyZ', useB: 'KeyX' },
   };
   try { Object.assign(settings, JSON.parse(localStorage.getItem('tge-hd-settings') || '{}')); } catch (e) {}
@@ -115,6 +115,21 @@
     const mood = moodFor(state);
     scene = HD.buildScene(state, mood);
     HD.renderScene(mood, lit);
+    if (settings.painted) {
+      const ps = HD.paintedScene(state);
+      if (ps) {
+        if (state.day_or_night) {
+          ps.tint = state.room_index === 0 ? 'rgba(10,20,60,0.55)' : 'rgba(10,15,40,0.45)';
+          if (state.room_index === 0) {
+            // window-cell lit map from the attribute grid
+            const l = new Uint8Array(23 * 16); let any = false;
+            for (let r = 0; r < 16; r++) for (let c = 0; c < 23; c++) if (state.attrs[(2 + r) * 32 + 7 + c] === 6) { l[r * 23 + c] = 1; any = true; }
+            if (any) ps.lit = l;
+          }
+        }
+        scene = ps;
+      }
+    }
     prevView = curView; curView = viewOf(state);
     prevSprites = new Map();
     for (const s of curSprites) if (s.kind === 'vischar') prevSprites.set(s.index, s);
@@ -199,8 +214,13 @@
 
   function lerp(a, b, t) { return a + (b - a) * t; }
 
+  let renderScale = 1;
   function render() {
     if (!state) return;
+    const rs = (settings.painted && HD.painted.ready) ? 2 : 1;
+    if (rs !== renderScale) { renderScale = rs; canvas.width = CW * rs; canvas.height = CH * rs; }
+    ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+    ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#101216'; ctx.fillRect(0, 0, CW, CH);
     if (mode === 'title') { renderTitle(); return; }
     // interpolation factor
@@ -512,7 +532,7 @@
   function applySettings() {
     host.soundOn = settings.sound; host.musicOn = settings.music;
     if (HD.useArt !== settings.art) { HD.useArt = settings.art; HD.clearCaches(); if (state && mode !== 'title') captureTick(); }
-    $('opt-art').checked = settings.art;
+    $('opt-art').checked = settings.art; $('opt-painted').checked = settings.painted; $('opt-painted').disabled = !HD.painted.ready;
     classicCanvas.style.display = settings.classic ? 'block' : 'none';
     document.body.classList.toggle('crt', settings.crt);
     $('opt-smooth').checked = settings.smooth; $('opt-classic').checked = settings.classic; $('opt-minimap').checked = settings.minimap;
@@ -573,7 +593,7 @@
   $('btn-no').onclick = () => answerPrompt(false);
   $('prompt').addEventListener('click', () => { if (mode === 'anykey') answerPrompt(undefined); });
   for (let n = 0; n < 3; n++) { $('save-' + n).onclick = () => saveSlot(n); $('load-' + n).onclick = () => loadSlot(n); $('mload-' + n).onclick = () => loadSlot(n); }
-  ['art', 'smooth', 'classic', 'minimap', 'sound', 'music', 'crt', 'hints'].forEach(k => { $('opt-' + k).onchange = (e) => { settings[k] = e.target.checked; applySettings(); }; });
+  ['painted', 'art', 'smooth', 'classic', 'minimap', 'sound', 'music', 'crt', 'hints'].forEach(k => { $('opt-' + k).onchange = (e) => { settings[k] = e.target.checked; applySettings(); }; });
   $('opt-speed').onchange = (e) => { settings.speed = parseFloat(e.target.value); applySettings(); };
   $('btn-mute').onclick = () => { settings.sound = settings.music = !(settings.sound || settings.music); applySettings(); };
 
@@ -590,6 +610,8 @@
     },
     setClock(c) { state.clock = c; },
   };
+  HD.onPaintedReady = (n) => { if (n) { toast('Painted backgrounds loaded (' + n + ' images)'); applySettings(); if (state && mode !== 'title') captureTick(); } };
+  HD.loadPainted(typeof PAINTED_DATA !== 'undefined' ? PAINTED_DATA : 'art/painted/');
   state = host.newGame();
   HD.stClass = HD.stClass || ((st) => 0);
   refreshKeyTable(); refreshSlots(); applySettings();

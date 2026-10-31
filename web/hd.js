@@ -499,14 +499,124 @@ const HD = (function () {
   tmpCanvas.width = 32 * SCALE; tmpCanvas.height = 40 * SCALE;
   const tmpCtx = tmpCanvas.getContext('2d');
 
+  /* ---- Painted backgrounds (optional, generated externally from art/refs) ---- */
+  const painted = { images: new Map(), map: null, mapLoading: false, ready: false, composed: new Map() };
+  const PAINTED_ROOM_FILES = typeof PAINTED_MANIFEST !== 'undefined' ? PAINTED_MANIFEST.rooms : [];
+  function loadPainted(source) {
+    // source: object name->dataURL (inlined build) or a base URL string for a folder of files
+    const names = PAINTED_ROOM_FILES.map(r => r.file).concat(['map_q0_topleft.png', 'map_q1_topright.png', 'map_q2_bottomleft.png', 'map_q3_bottomright.png']);
+    let pending = 0, loaded = 0;
+    const done = () => { if (--pending === 0) { assembleMap(); painted.ready = loaded > 0; if (HD.onPaintedReady) HD.onPaintedReady(loaded); } };
+    for (const n of names) {
+      let url = null;
+      if (typeof source === 'string') url = source + n;
+      else if (source && source[n]) url = source[n];
+      if (!url) continue;
+      pending++;
+      const img = new Image();
+      img.onload = () => { painted.images.set(n, normalise(img, n.startsWith('map_') ? 3456 / 2176 : WIN_W / WIN_H)); loaded++; done(); };
+      img.onerror = () => done();
+      img.src = url;
+    }
+    if (pending === 0 && HD.onPaintedReady) HD.onPaintedReady(0);
+  }
+  // Centre-crop an image to the given aspect ratio, keeping its native resolution.
+  function normalise(img, aspect) {
+    let w = img.width, h = img.height;
+    if (Math.abs(w / h - aspect) < 0.01) return img;
+    let cw = w, ch = h;
+    if (w / h > aspect) cw = Math.round(h * aspect); else ch = Math.round(w / aspect);
+    const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+    cv.getContext('2d').drawImage(img, (w - cw) / 2, (h - ch) / 2, cw, ch, 0, 0, cw, ch);
+    return cv;
+  }
+  function assembleMap() {
+    const q = ['map_q0_topleft.png', 'map_q1_topright.png', 'map_q2_bottomleft.png', 'map_q3_bottomright.png'].map(n => painted.images.get(n));
+    if (!q.every(Boolean)) { painted.map = null; return; }
+    // native resolution of the paintings (quadrants are 3456x2176 at the renderer's 4x scale)
+    const qw = Math.min(8192, Math.max(...q.map(i => i.width))), qh = Math.round(qw * 2176 / 3456);
+    const cv = document.createElement('canvas'); cv.width = qw * 2; cv.height = qh * 2;
+    const c = cv.getContext('2d');
+    for (let i = 0; i < 4; i++) c.drawImage(q[i], (i & 1) * qw, (i >> 1) * qh, qw, qh);
+    painted.map = cv; painted.mapScale = (qw * 2) / (216 * 32); // painting pixels per renderer pixel
+  }
+  // Pick (and compose, for mixed bed/bench states) the painting for the current room. Returns a canvas or null.
+  function paintedRoom(state) {
+    const room = state.room_index;
+    const entries = PAINTED_ROOM_FILES.filter(r => r.room === room);
+    if (!entries.length) return null;
+    if (entries.length === 1) return painted.images.get(entries[0].file) || null;
+    // variants: entries with 'shadow' maps {slot: value}; base = the 'empty/clear' one
+    const base = entries.find(e => /empty|clear/.test(e.file)), alt = entries.find(e => !/empty|clear/.test(e.file));
+    if (!base || !alt) return painted.images.get(entries[0].file) || null;
+    const bimg = painted.images.get(base.file), aimg = painted.images.get(alt.file);
+    if (!bimg) return aimg || null;
+    if (!aimg) return bimg;
+    // which slots are currently in the 'alt' state?
+    const slots = Object.keys(alt.shadow).map(Number);
+    const active = slots.filter(sl => state.roomdef_shadow_bytes[sl] === alt.shadow[sl]);
+    if (active.length === 0) return bimg;
+    if (active.length === slots.length) return aimg;
+    const key = room + ':' + active.join(',');
+    let cv = painted.composed.get(key);
+    if (cv) return cv;
+    cv = document.createElement('canvas'); cv.width = bimg.width; cv.height = bimg.height;
+    const c = cv.getContext('2d');
+    c.drawImage(bimg, 0, 0, cv.width, cv.height);
+    const kx = cv.width / 736, ky = cv.height / 512;
+    // crop the alt painting over each active slot's object rectangle (with a margin), feathered
+    const rd = D.rooms[room - 1];
+    let off = 1; const nb = rd[off++]; off += nb * 4; const nm = rd[off++]; off += nm; const nobj = rd[off++];
+    for (let i = 0; i < nobj; i++) {
+      const slot = get_roomdef_shadow(room, off), col = rd[off + 1], row = rd[off + 2]; off += 3;
+      if (slot < 0 || !active.includes(slot)) continue;
+      const oi = alt.shadow[slot], w = D.objects[oi][0], h = D.objects[oi][1];
+      const x = (col - 1) * 32 + 0, y = (row - 1) * 32 - 32, ww = (w + 2) * 32, hh = (h + 3) * 32; // margin of a tile around, extra above
+      const tmp = document.createElement('canvas'); tmp.width = Math.round(ww * kx); tmp.height = Math.round(hh * ky);
+      const t = tmp.getContext('2d');
+      t.drawImage(aimg, x * aimg.width / 736, y * aimg.height / 512, ww * aimg.width / 736, hh * aimg.height / 512, 0, 0, tmp.width, tmp.height);
+      t.globalCompositeOperation = 'destination-in';
+      const g = t.createRadialGradient(tmp.width / 2, tmp.height / 2, Math.min(tmp.width, tmp.height) * 0.25, tmp.width / 2, tmp.height / 2, Math.max(tmp.width, tmp.height) * 0.55);
+      g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      t.fillStyle = g; t.fillRect(0, 0, tmp.width, tmp.height);
+      c.drawImage(tmp, Math.round(x * kx), Math.round(y * ky));
+    }
+    painted.composed.set(key, cv);
+    return cv;
+  }
+  // Returns a scene descriptor for the painted background, or null when none is available.
+  function paintedScene(state) {
+    if (!painted.ready) return null;
+    if (state.room_index === 0) {
+      if (!painted.map) return null;
+      return { canvas: painted.map, originX: 0, originY: 32, painted: true, k: painted.mapScale };
+    }
+    const cv = paintedRoom(state);
+    if (!cv) return null;
+    return { canvas: cv, originX: state.map_position.x * 8 + 8, originY: state.map_position.y * 8, fit: true, painted: true };
+  }
+
   /* ---- Frame compose --------------------------------------------------- */
   // sprites: array of { image, x, y (absolute map pixel coords of sprite top-left), maskbuf, maskOriginX, maskOriginY }
   function composeFrame(ctx, scene, viewX, viewY, sprites, nightLight) {
     // scene buffer top-left absolute = scene.originX/Y; view top-left absolute = viewX/viewY
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, WIN_W * SCALE, WIN_H * SCALE); ctx.clip();
-    ctx.drawImage(sceneCanvas, Math.round((scene.originX - viewX) * SCALE), Math.round((scene.originY - viewY) * SCALE));
-    for (const o of sceneObjects) {
+    if (scene.canvas) {
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      if (scene.fit) ctx.drawImage(scene.canvas, Math.round((scene.originX - viewX) * SCALE), Math.round((scene.originY - viewY) * SCALE), WIN_W * SCALE, WIN_H * SCALE);
+      else if (scene.k) { const k = scene.k; ctx.drawImage(scene.canvas, (viewX - scene.originX) * SCALE * k, (viewY - scene.originY) * SCALE * k, WIN_W * SCALE * k, WIN_H * SCALE * k, 0, 0, WIN_W * SCALE, WIN_H * SCALE); }
+      else ctx.drawImage(scene.canvas, Math.round((scene.originX - viewX) * SCALE), Math.round((scene.originY - viewY) * SCALE));
+      ctx.imageSmoothingEnabled = false;
+    } else ctx.drawImage(sceneCanvas, Math.round((scene.originX - viewX) * SCALE), Math.round((scene.originY - viewY) * SCALE));
+    if (scene.tint) {
+      // night: darken everything except the searchlight-lit cells
+      ctx.fillStyle = scene.tint;
+      if (scene.lit) {
+        for (let r = 0; r < 16; r++) for (let c = 0; c < 23; c++) if (!scene.lit[r * 23 + c]) ctx.fillRect(c * 8 * SCALE, r * 8 * SCALE, 8 * SCALE, 8 * SCALE);
+      } else ctx.fillRect(0, 0, WIN_W * SCALE, WIN_H * SCALE);
+    }
+    if (!scene.painted) for (const o of sceneObjects) {
       const img = ART_OBJECTS.image(o.oi, o.w, o.h, SCALE / 2);
       if (img) ctx.drawImage(img, Math.round((scene.originX + 8 + o.col * 8 - viewX) * SCALE), Math.round((scene.originY + 8 + o.row * 8 - viewY) * SCALE));
     }
@@ -540,6 +650,6 @@ const HD = (function () {
     ctx.restore();
   }
 
-  function clearCaches() { spriteCache.clear(); itemCache.clear(); }
-  return { useArt: true, clearCaches, SCALE, WIN_W, WIN_H, BUF_COLS, BUF_ROWS, MOODS, CLASS_ID, stClass: (st) => ST_CLASS[st], init, buildScene, renderScene, getSprite, getItem, composeFrame, sceneLit, hexToRgb, epx2x };
+  function clearCaches() { spriteCache.clear(); itemCache.clear(); painted.composed.clear(); }
+  return { useArt: true, clearCaches, loadPainted, paintedScene, painted, SCALE, WIN_W, WIN_H, BUF_COLS, BUF_ROWS, MOODS, CLASS_ID, stClass: (st) => ST_CLASS[st], init, buildScene, renderScene, getSprite, getItem, composeFrame, sceneLit, hexToRgb, epx2x };
 })();
