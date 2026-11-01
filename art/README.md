@@ -32,21 +32,38 @@ Tips:
   composition of the input image" added.
 * Keep the area outside the room black.
 * No people in the room images except the "seated" mess-hall variants.
-* If the output has a different aspect ratio, it is centre-cropped automatically.
+* Generators often change the framing a little (a 4:3 output, letterbox bars,
+  a slight shift). That is fine: `tools/align_paintings.js` measures where the
+  reference frame sits inside each painting and stores it in the manifest, and
+  the game crops accordingly.
 
 ## Where to put them
 
-Commit the `art/painted/` folder to this branch (or send the folder as a zip).
-Then build the game with the paintings inlined:
+Commit the `art/painted/` folder to this branch (or send the folder as a zip),
+then:
 
 ```sh
-node tools/build.js web/index.html dist/TheGreatEscapeHD.html art/painted
+# 1. register each painting to its reference (writes PAINTED_ALIGN into the manifest)
+node tools/align_paintings.js art/refs art/painted web/painted_manifest.js
+# 2. re-encode for the single-file build (rooms 1472 px wide, map 4096 px, WebP)
+tools/shrink_paintings.sh art/painted dist/painted_web
+# 3. build the game with the paintings inlined
+node tools/build.js web/index.html dist/TheGreatEscapeHD.html dist/painted_web
 ```
+
+Step 2 needs ImageMagick; without it, pass `art/painted` to the build directly
+(the file is then as large as the paintings themselves).
 
 The pause menu gets a "Painted backgrounds" option that switches between the
 paintings and the pixel art. Missing files simply fall back to pixel art, so a
 partial set works too. The development page (`web/index.html`) loads the
-folder directly from `art/painted/` without rebuilding.
+folder directly from `art/painted/` without rebuilding (serve the repository
+root over HTTP for that).
+
+The engine's characters, items and occlusion masks are drawn over the painting,
+and rooms with beds or benches blend the two variants per slot, so a room with
+one occupied bed shows that bed from the "occupied" painting and the rest from
+the "empty" one.
 
 ## Regenerating the references
 

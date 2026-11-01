@@ -502,23 +502,52 @@ const HD = (function () {
   /* ---- Painted backgrounds (optional, generated externally from art/refs) ---- */
   const painted = { images: new Map(), map: null, mapLoading: false, ready: false, composed: new Map() };
   const PAINTED_ROOM_FILES = typeof PAINTED_MANIFEST !== 'undefined' ? PAINTED_MANIFEST.rooms : [];
+  const PAINTED_ALIGN_TABLE = typeof PAINTED_ALIGN !== 'undefined' ? PAINTED_ALIGN : {};
+  const PAINTED_EXTS = ['.png', '.jpg', '.jpeg', '.webp'];
+  const baseName = (n) => n.replace(/\.[a-z0-9]+$/i, '');
   function loadPainted(source) {
-    // source: object name->dataURL (inlined build) or a base URL string for a folder of files
+    // source: object fileName->dataURL (inlined build) or a base URL string for a folder of files.
+    // Files are matched by base name, so a painting may be png, jpg or webp whatever the manifest says.
     const names = PAINTED_ROOM_FILES.map(r => r.file).concat(['map_q0_topleft.png', 'map_q1_topright.png', 'map_q2_bottomleft.png', 'map_q3_bottomright.png']);
     let pending = 0, loaded = 0;
+    const byBase = new Map();
+    if (source && typeof source === 'object') for (const k of Object.keys(source)) byBase.set(baseName(k), source[k]);
     const done = () => { if (--pending === 0) { assembleMap(); painted.ready = loaded > 0; if (HD.onPaintedReady) HD.onPaintedReady(loaded); } };
     for (const n of names) {
-      let url = null;
-      if (typeof source === 'string') url = source + n;
-      else if (source && source[n]) url = source[n];
-      if (!url) continue;
+      const base = baseName(n);
+      let urls = [];
+      if (typeof source === 'string') urls = PAINTED_EXTS.map(e => source + base + e);
+      else if (byBase.has(base)) urls = [byBase.get(base)];
+      if (!urls.length) continue;
       pending++;
       const img = new Image();
-      img.onload = () => { painted.images.set(n, normalise(img, n.startsWith('map_') ? 3456 / 2176 : WIN_W / WIN_H)); loaded++; done(); };
-      img.onerror = () => done();
-      img.src = url;
+      let attempt = 0;
+      img.onload = () => { painted.images.set(n, registerPainting(img, base, n.startsWith('map_') ? 3456 / 2176 : WIN_W / WIN_H)); loaded++; done(); };
+      img.onerror = () => { if (++attempt < urls.length) img.src = urls[attempt]; else done(); };
+      img.src = urls[0];
     }
     if (pending === 0 && HD.onPaintedReady) HD.onPaintedReady(0);
+  }
+  // Map a painting onto the full reference frame using its measured alignment rectangle (fractions of the
+  // painting that correspond to the whole reference image). Parts of the frame the painting does not cover
+  // are black, which is also what surrounds every room. Without alignment data, centre-crop to the aspect.
+  function registerPainting(img, base, aspect) {
+    const a = PAINTED_ALIGN_TABLE[base];
+    if (!a) return normalise(img, aspect);
+    const W = img.width, H = img.height;
+    const fx = a.x * W, fy = a.y * H, fw = a.w * W, fh = a.h * H;
+    if (Math.abs(fx) < 1 && Math.abs(fy) < 1 && Math.abs(fw - W) < 1 && Math.abs(fh - H) < 1) return img;
+    const cv = document.createElement('canvas'); cv.width = Math.round(fw); cv.height = Math.round(fh);
+    const c = cv.getContext('2d');
+    // fill the uncovered strip with the painting's own border colour (tunnels are dark brown, not black)
+    c.drawImage(img, 0, 0, W, H, 0, 0, 1, 1); const p = c.getImageData(0, 0, 1, 1).data; // average of the whole image
+    const edge = document.createElement('canvas'); edge.width = 1; edge.height = 1;
+    const ec = edge.getContext('2d'); ec.drawImage(img, 0, 0, W, 4, 0, 0, 1, 1); const e1 = ec.getImageData(0, 0, 1, 1).data;
+    ec.drawImage(img, 0, H - 4, W, 4, 0, 0, 1, 1); const e2 = ec.getImageData(0, 0, 1, 1).data;
+    const dark = [0, 1, 2].map(i => Math.round(Math.min(e1[i], e2[i], p[i])));
+    c.fillStyle = `rgb(${dark[0]},${dark[1]},${dark[2]})`; c.fillRect(0, 0, cv.width, cv.height);
+    c.drawImage(img, 0, 0, W, H, -fx, -fy, W, H);
+    return cv;
   }
   // Centre-crop an image to the given aspect ratio, keeping its native resolution.
   function normalise(img, aspect) {
@@ -534,7 +563,8 @@ const HD = (function () {
     const q = ['map_q0_topleft.png', 'map_q1_topright.png', 'map_q2_bottomleft.png', 'map_q3_bottomright.png'].map(n => painted.images.get(n));
     if (!q.every(Boolean)) { painted.map = null; return; }
     // native resolution of the paintings (quadrants are 3456x2176 at the renderer's 4x scale)
-    const qw = Math.min(8192, Math.max(...q.map(i => i.width))), qh = Math.round(qw * 2176 / 3456);
+    // (capped: the assembled map is one canvas, 4096-wide quadrants already make it 8192x5152)
+    const qw = Math.min(4096, Math.max(...q.map(i => i.width))), qh = Math.round(qw * 2176 / 3456);
     const cv = document.createElement('canvas'); cv.width = qw * 2; cv.height = qh * 2;
     const c = cv.getContext('2d');
     for (let i = 0; i < 4; i++) c.drawImage(q[i], (i & 1) * qw, (i >> 1) * qh, qw, qh);

@@ -439,7 +439,8 @@
     state.room_index = 0; state.map_position.x = Math.round(px); state.map_position.y = Math.round(py);
     state.game_window_offset.x = 0; state.game_window_offset.y = 0;
     get_supertiles(state); plot_all_tiles(state);
-    scene = HD.buildScene(state, HD.MOODS.day); HD.renderScene(HD.MOODS.day, null);
+    const ps = settings.painted ? HD.paintedScene(state) : null;
+    if (ps) scene = ps; else { scene = HD.buildScene(state, HD.MOODS.day); HD.renderScene(HD.MOODS.day, null); }
     const v = viewOf(state);
     ctx.save(); ctx.translate(WX, WY);
     HD.composeFrame(ctx, scene, v.x, v.y, [], null);
@@ -611,7 +612,7 @@
     setClock(c) { state.clock = c; },
   };
   HD.onPaintedReady = (n) => { if (n) { toast('Painted backgrounds loaded (' + n + ' images)'); applySettings(); if (state && mode !== 'title') captureTick(); } };
-  HD.loadPainted(typeof PAINTED_DATA !== 'undefined' ? PAINTED_DATA : 'art/painted/');
+  HD.loadPainted(typeof PAINTED_DATA !== 'undefined' ? PAINTED_DATA : '../art/painted/');
   state = host.newGame();
   HD.stClass = HD.stClass || ((st) => 0);
   refreshKeyTable(); refreshSlots(); applySettings();
